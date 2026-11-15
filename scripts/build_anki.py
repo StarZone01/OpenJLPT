@@ -257,71 +257,111 @@ def load_lexicon():
                     if key: LEXICON.setdefault(key, gloss)
 
 def align_example(jp, en, term, meaning):
-    # Sentence-level phrase alignments: one English word may correspond to
-    # multiple Japanese particles/morphemes in the same grammatical phrase.
+    plain_jp = re.sub(r"\{([^{}|]+)\|([^{}|]+)\}", r"\1", jp)
     pairs = []
+
+    def english_match(gloss):
+        gloss = gloss.strip().lower()
+        aliases = {
+            "to meet": ["meet", "met", "meets", "meeting"],
+            "meet": ["meet", "met", "meets", "meeting"],
+            "to go": ["go", "goes", "went", "gone", "going"],
+            "to come": ["come", "comes", "came", "coming"],
+            "to see": ["see", "sees", "saw", "seen", "seeing"],
+            "to eat": ["eat", "eats", "ate", "eaten", "eating"],
+            "to buy": ["buy", "buys", "bought", "buying"],
+            "to write": ["write", "writes", "wrote", "written", "writing"],
+            "to read": ["read", "reads", "reading"],
+            "to speak": ["speak", "speaks", "spoke", "spoken", "speaking"],
+            "to do": ["do", "does", "did", "done", "doing"],
+            "to make": ["make", "makes", "made", "making"],
+            "to greet": ["greet", "greets", "greeted", "greeting", "hello"],
+            "I": ["I", "me", "my", "mine"],
+            "me": ["me", "my", "mine", "I"],
+            "myself": ["myself", "me", "my", "I"],
+            "name": ["name", "named", "names"],
+            "hello": ["hello", "hi", "greetings"],
+        }
+        candidates = aliases.get(gloss, [gloss.removeprefix("to ")])
+        for candidate in candidates:
+            if re.search(r"(?i)\b"+re.escape(candidate)+r"\b", en):
+                return candidate
+        return None
+
+    # Common sentence constructions where Japanese grammar is expressed by
+    # more than one particle/copula, or where a name is written in katakana.
     sentence_pairs = [
         ("こんにちは", "hello"),
+        ("私", "my"),
         ("名前", "name"),
         ("の", "is"), ("は", "is"), ("です", "is"),
         ("ダニエル", "daniel"),
     ]
     for japanese, english in sentence_pairs:
-        if japanese in re.sub(r"\{([^{}|]+)\|([^{}|]+)\}", r"\1", jp) and re.search(r"(?i)\b"+re.escape(english)+r"\b", en):
+        if japanese in plain_jp and re.search(r"(?i)\b"+re.escape(english)+r"\b", en):
             pairs.append((japanese, english))
 
-    def english_match(gloss):
-        gloss = gloss.strip().lower()
-        variants = {
-            "to meet": ["meet", "met", "meets", "meeting"], "meet": ["meet", "met", "meets", "meeting"],
-            "to go": ["go", "goes", "went", "gone", "going"], "to come": ["come", "comes", "came", "coming"],
-            "to see": ["see", "sees", "saw", "seen", "seeing"], "to eat": ["eat", "eats", "ate", "eaten", "eating"],
-            "to buy": ["buy", "buys", "bought", "buying"], "to write": ["write", "writes", "wrote", "written", "writing"],
-            "to read": ["read", "reads", "reading"], "to speak": ["speak", "speaks", "spoke", "spoken", "speaking"],
-            "to do": ["do", "does", "did", "done", "doing"], "to make": ["make", "makes", "made", "making"],
-        }
-        candidates = variants.get(gloss, [gloss.removeprefix("to ")])
-        return next((w for w in candidates if re.search(r"(?i)\b"+re.escape(w)+r"\b", en)), None)
+    # Match every vocabulary entry visible in the sentence, not only the
+    # single word being tested on this card. Longest terms win to avoid
+    # colouring a short substring inside a compound first.
+    seen_japanese = {j for j, _ in pairs}
+    for japanese, gloss in sorted(LEXICON.items(), key=lambda item: len(item[0]), reverse=True):
+        if len(japanese) < 1 or japanese in seen_japanese or japanese not in plain_jp:
+            continue
+        found = english_match(gloss)
+        if found:
+            pairs.append((japanese, found))
+            seen_japanese.add(japanese)
 
-    for token, glosses in PARTICLE_GLOSSES.items():
-        if token in jp:
-            found = next((english_match(g) for g in glosses if english_match(g)), None)
-            if found: pairs.append((token, found))
+    # Furigana-marked words can be matched by either their written form or reading.
     for m in re.finditer(r"\{([^{}|]+)\|([^{}|]+)\}", jp):
         base, reading = m.group(1), m.group(2)
         gloss = LEXICON.get(base) or LEXICON.get(reading)
         if not gloss:
-            for vocab, vocab_gloss in LEXICON.items():
+            for vocab, vocab_gloss in sorted(LEXICON.items(), key=lambda item: len(item[0]), reverse=True):
                 if (base in vocab or vocab in base) and (reading in vocab or vocab in reading):
                     gloss = vocab_gloss
                     break
-        if not gloss and any(ch in term for ch in base): gloss = meaning.split(";")[0].strip()
         found = english_match(gloss) if gloss else None
-        if found: pairs.append((m.group(0), found))
-    head = term.replace("〜","").strip()
+        if found and not any(j == m.group(0) or j == base for j, _ in pairs):
+            pairs.append((m.group(0), found))
+
+    # The card's target word is a final fallback for inflected forms.
+    head = term.replace("〜", "").strip()
     found = english_match(meaning.split(";")[0].strip())
     if head and found:
-        stem = next((ch for ch in head if "\u4e00" <= ch <= "\u9fff" and ch in jp), None)
-        target = stem or (head if head in jp else None)
-        if target: pairs.insert(0,(target,found))
+        stem = next((ch for ch in head if "\u4e00" <= ch <= "\u9fff" and ch in plain_jp), None)
+        target = stem or (head if head in plain_jp else None)
+        if target and not any(j == target for j, _ in pairs):
+            pairs.insert(0, (target, found))
 
     jp_out, en_out = jp, en
     english_classes = {}
+    used_japanese = set()
     for j, e in pairs:
+        if j in used_japanese:
+            continue
         key = e.lower()
         if key not in english_classes:
             english_classes[key] = f"pair-{len(english_classes)%8}"
         cls = english_classes[key]
         # Replace the Japanese base inside furigana markup without losing ruby.
-        pattern = re.compile(r"\{("+re.escape(j)+r")\|([^{}|]+)\}") if not j.startswith("{") else None
-        if pattern and pattern.search(jp_out):
-            jp_out = pattern.sub(lambda m: f"<span class='{cls}'>{{{m.group(1)}|{m.group(2)}}}</span>", jp_out, count=1)
-        elif j.startswith("{"):
-            base, reading = j[1:-1].split("|",1)
-            jp_out = jp_out.replace(j, f"<span class='{cls}'>{{{base}|{reading}}}</span>", 1)
+        if j.startswith("{"):
+            base, reading = j[1:-1].split("|", 1)
+            if base not in used_japanese:
+                jp_out = jp_out.replace(j, f"<span class='{cls}'>{{{base}|{reading}}}</span>", 1)
+                used_japanese.add(base)
         else:
-            jp_out = jp_out.replace(j, f"<span class='{cls}'>{j}</span>", 1)
-        en_out = re.sub(r"(?i)\b("+re.escape(e)+r")\b", lambda m: f"<span class='{cls}'>{m.group(1)}</span>", en_out, count=1)
+            pattern = re.compile(r"\{("+re.escape(j)+r")\|([^{}|]+)\}")
+            if pattern.search(jp_out):
+                jp_out = pattern.sub(lambda m: f"<span class='{cls}'>{{{m.group(1)}|{m.group(2)}}}</span>", jp_out, count=1)
+            elif j in jp_out:
+                jp_out = jp_out.replace(j, f"<span class='{cls}'>{j}</span>", 1)
+            used_japanese.add(j)
+        # Repeated Japanese pieces can share a colour, but colour the English
+        # translation token only once.
+        if not re.search(r"class=['\"]"+re.escape(cls)+r"['\"]>.*?"+re.escape(e)+r"</span>", en_out, re.I):
+            en_out = re.sub(r"(?i)\b("+re.escape(e)+r")\b", lambda m: f"<span class='{cls}'>{m.group(1)}</span>", en_out, count=1)
     return jp_out, en_out
 
 def format_back(raw, tags):
