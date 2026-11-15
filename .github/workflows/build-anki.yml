@@ -1,0 +1,30 @@
+name: Build Japanese N5-N4 Anki deck
+on:
+  push:
+    branches: [main]
+    paths:
+      - "anki_exports/**"
+      - "scripts/build_anki.py"
+      - ".github/workflows/build-anki.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Anki package builder
+        run: pip install genanki
+      - name: Build package
+        run: python scripts/build_anki.py
+      - name: Upload Anki package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Japanese_JLPT_N5_N4_Full
+          path: Japanese_JLPT_N5_N4_Full.apkg
+          if-no-files-found: error
+          retention-days: 90
