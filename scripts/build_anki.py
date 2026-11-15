@@ -331,6 +331,14 @@ def align_example(jp, en, term, meaning):
                     pairs.append((token, found))
                     break
 
+    # In Japanese topic/copula clauses (XのYはZです), the possessive/topic/
+    # copula sequence can jointly express an English linking phrase such as
+    # "name is". Keep those Japanese grammar units in the same colour group.
+    if "です" in plain_jp and "は" in plain_jp and re.search(r"(?i)\\bis\\b", en):
+        for particle in ("の", "は", "です"):
+            if particle in plain_jp:
+                pairs.append((particle, "is"))
+
     # Build candidate Japanese units using morphological dictionary segmentation.
     # Lemmas let inflected verbs/adjectives match their dictionary entry.
     try:
