@@ -257,111 +257,159 @@ def load_lexicon():
                     if key: LEXICON.setdefault(key, gloss)
 
 def align_example(jp, en, term, meaning):
+    """Colour Japanese lexical/grammar units with the corresponding English word.
+
+    Fugashi + UniDic provides Japanese word boundaries and dictionary forms.
+    The matching is deliberately conservative: only colour a pair when a
+    dictionary gloss or particle gloss has a plausible match in the translation.
+    """
     plain_jp = re.sub(r"\{([^{}|]+)\|([^{}|]+)\}", r"\1", jp)
     pairs = []
 
+    aliases = {
+        "to meet": ["meet", "met", "meets", "meeting"],
+        "to go": ["go", "goes", "went", "gone", "going"],
+        "to come": ["come", "comes", "came", "coming"],
+        "to see": ["see", "sees", "saw", "seen", "seeing", "look", "looked"],
+        "to eat": ["eat", "eats", "ate", "eaten", "eating"],
+        "to buy": ["buy", "buys", "bought", "buying"],
+        "to write": ["write", "writes", "wrote", "written", "writing"],
+        "to read": ["read", "reads", "reading"],
+        "to speak": ["speak", "speaks", "spoke", "spoken", "speaking", "talk", "talked"],
+        "to do": ["do", "does", "did", "done", "doing"],
+        "to make": ["make", "makes", "made", "making", "create", "created"],
+        "to greet": ["greet", "greets", "greeted", "greeting", "hello", "say hello"],
+        "to apologize": ["apologize", "apologizes", "apologized", "apologising", "apologizing", "sorry"],
+        "to raise": ["raise", "raises", "raised", "raising", "lift", "lifts", "lifted"],
+        "to turn": ["turn", "turns", "turned", "turning", "change", "changes", "changed"],
+        "to open": ["open", "opens", "opened", "opening"],
+        "to plant": ["plant", "plants", "planted", "planting"],
+        "to guide": ["guide", "guides", "guided", "guiding", "show", "shows", "showed"],
+        "I": ["I", "me", "my", "mine"],
+        "my": ["my", "mine"],
+        "me": ["me", "my", "I"],
+        "you": ["you", "your", "yours"],
+        "name": ["name", "names", "named"],
+        "hello": ["hello", "hi", "greetings"],
+        "person": ["person", "people", "someone", "anyone"],
+        "house": ["house", "home"],
+        "beautiful": ["beautiful", "pretty", "lovely"],
+        "blue": ["blue"],
+        "green": ["green"],
+        "red": ["red"],
+        "morning": ["morning"],
+        "tomorrow": ["tomorrow"],
+        "autumn": ["autumn", "fall"],
+        "safety": ["safety", "safe"],
+        "to be": ["am", "is", "are", "was", "were", "be", "been", "being"],
+    }
+
     def english_match(gloss):
+        if not gloss:
+            return None
         gloss = gloss.strip().lower()
-        aliases = {
-            "to meet": ["meet", "met", "meets", "meeting"],
-            "meet": ["meet", "met", "meets", "meeting"],
-            "to go": ["go", "goes", "went", "gone", "going"],
-            "to come": ["come", "comes", "came", "coming"],
-            "to see": ["see", "sees", "saw", "seen", "seeing"],
-            "to eat": ["eat", "eats", "ate", "eaten", "eating"],
-            "to buy": ["buy", "buys", "bought", "buying"],
-            "to write": ["write", "writes", "wrote", "written", "writing"],
-            "to read": ["read", "reads", "reading"],
-            "to speak": ["speak", "speaks", "spoke", "spoken", "speaking"],
-            "to do": ["do", "does", "did", "done", "doing"],
-            "to make": ["make", "makes", "made", "making"],
-            "to greet": ["greet", "greets", "greeted", "greeting", "hello"],
-            "I": ["I", "me", "my", "mine"],
-            "me": ["me", "my", "mine", "I"],
-            "myself": ["myself", "me", "my", "I"],
-            "name": ["name", "named", "names"],
-            "hello": ["hello", "hi", "greetings"],
-        }
-        candidates = aliases.get(gloss, [gloss.removeprefix("to ")])
+        candidates = aliases.get(gloss, [])
+        if not candidates:
+            base = gloss.removeprefix("to ")
+            candidates = [base]
+            # Basic English inflection fallback (e.g. translated "opened").
+            if len(base) > 3:
+                candidates += [base + "s", base + "ed", base + "ing"]
+                if base.endswith("e"):
+                    candidates += [base[:-1] + "ing", base + "d"]
         for candidate in candidates:
-            if re.search(r"(?i)\b"+re.escape(candidate)+r"\b", en):
+            if re.search(r"(?i)\b" + re.escape(candidate) + r"\b", en):
                 return candidate
         return None
 
-    # Common sentence constructions where Japanese grammar is expressed by
-    # more than one particle/copula, or where a name is written in katakana.
-    sentence_pairs = [
-        ("こんにちは", "hello"),
-        ("私", "my"),
-        ("名前", "name"),
-        ("の", "is"), ("は", "is"), ("です", "is"),
-        ("ダニエル", "daniel"),
-    ]
-    for japanese, english in sentence_pairs:
-        if japanese in plain_jp and re.search(r"(?i)\b"+re.escape(english)+r"\b", en):
-            pairs.append((japanese, english))
+    # Map grammatical particles when their gloss is explicitly present.
+    for token, glosses in PARTICLE_GLOSSES.items():
+        if token in plain_jp:
+            for gloss in glosses:
+                found = english_match(gloss)
+                if found:
+                    pairs.append((token, found))
+                    break
 
-    # Match every vocabulary entry visible in the sentence, not only the
-    # single word being tested on this card. Longest terms win to avoid
-    # colouring a short substring inside a compound first.
-    seen_japanese = {j for j, _ in pairs}
-    for japanese, gloss in sorted(LEXICON.items(), key=lambda item: len(item[0]), reverse=True):
-        if len(japanese) < 1 or japanese in seen_japanese or japanese not in plain_jp:
-            continue
-        found = english_match(gloss)
-        if found:
-            pairs.append((japanese, found))
-            seen_japanese.add(japanese)
+    # Build candidate Japanese units using morphological dictionary segmentation.
+    # Lemmas let inflected verbs/adjectives match their dictionary entry.
+    try:
+        from fugashi import Tagger
+        tagger = Tagger()
+        for token in tagger(plain_jp):
+            surface = token.surface
+            feature = token.feature
+            lemma = getattr(feature, "lemma", "") or ""
+            candidates = [surface]
+            if lemma and lemma != "*" and lemma not in candidates:
+                candidates.append(lemma)
+            gloss = next((LEXICON[x] for x in candidates if x in LEXICON), None)
+            if not gloss:
+                # A furigana entry may be indexed by its reading rather than surface.
+                marked = next((m for m in re.finditer(r"\{([^{}|]+)\|([^{}|]+)\}", jp)
+                               if m.group(1) == surface), None)
+                if marked:
+                    gloss = LEXICON.get(marked.group(2))
+            found = english_match(gloss) if gloss else None
+            if found:
+                pairs.append((surface, found))
+    except Exception:
+        # Fallback for environments without the tokenizer: longest lexicon matches.
+        for japanese, gloss in sorted(LEXICON.items(), key=lambda item: len(item[0]), reverse=True):
+            if japanese and japanese in plain_jp:
+                found = english_match(gloss)
+                if found:
+                    pairs.append((japanese, found))
 
-    # Furigana-marked words can be matched by either their written form or reading.
+    # Also consult explicit furigana base/reading pairs, even if tokenizer splits them.
     for m in re.finditer(r"\{([^{}|]+)\|([^{}|]+)\}", jp):
         base, reading = m.group(1), m.group(2)
         gloss = LEXICON.get(base) or LEXICON.get(reading)
-        if not gloss:
-            for vocab, vocab_gloss in sorted(LEXICON.items(), key=lambda item: len(item[0]), reverse=True):
-                if (base in vocab or vocab in base) and (reading in vocab or vocab in reading):
-                    gloss = vocab_gloss
-                    break
         found = english_match(gloss) if gloss else None
-        if found and not any(j == m.group(0) or j == base for j, _ in pairs):
+        if found:
             pairs.append((m.group(0), found))
 
-    # The card's target word is a final fallback for inflected forms.
+    # Ensure the vocabulary/grammar target on the card is represented if inflected.
     head = term.replace("〜", "").strip()
     found = english_match(meaning.split(";")[0].strip())
     if head and found:
         stem = next((ch for ch in head if "\u4e00" <= ch <= "\u9fff" and ch in plain_jp), None)
         target = stem or (head if head in plain_jp else None)
-        if target and not any(j == target for j, _ in pairs):
+        if target:
             pairs.insert(0, (target, found))
 
-    jp_out, en_out = jp, en
+    # Keep the first reliable alignment for each Japanese surface; one English
+    # translation word may intentionally colour multiple Japanese grammar pieces.
+    deduped = []
+    used = set()
+    for japanese, english in pairs:
+        key = re.sub(r"\{([^{}|]+)\|([^{}|]+)\}", r"\1", japanese)
+        if key and key not in used:
+            used.add(key)
+            deduped.append((japanese, english))
+
     english_classes = {}
-    used_japanese = set()
-    for j, e in pairs:
-        if j in used_japanese:
-            continue
-        key = e.lower()
-        if key not in english_classes:
-            english_classes[key] = f"pair-{len(english_classes)%8}"
-        cls = english_classes[key]
-        # Replace the Japanese base inside furigana markup without losing ruby.
-        if j.startswith("{"):
-            base, reading = j[1:-1].split("|", 1)
-            if base not in used_japanese:
-                jp_out = jp_out.replace(j, f"<span class='{cls}'>{{{base}|{reading}}}</span>", 1)
-                used_japanese.add(base)
+    for _, english in deduped:
+        english_classes.setdefault(english.lower(), f"pair-{len(english_classes)%8}")
+
+    jp_out = jp
+    for japanese, english in deduped:
+        cls = english_classes[english.lower()]
+        if japanese.startswith("{"):
+            base, reading = japanese[1:-1].split("|", 1)
+            jp_out = jp_out.replace(japanese, f"<span class='{cls}'>{{{base}|{reading}}}</span>", 1)
         else:
-            pattern = re.compile(r"\{("+re.escape(j)+r")\|([^{}|]+)\}")
+            pattern = re.compile(r"\{(" + re.escape(japanese) + r")\|([^{}|]+)\}")
             if pattern.search(jp_out):
                 jp_out = pattern.sub(lambda m: f"<span class='{cls}'>{{{m.group(1)}|{m.group(2)}}}</span>", jp_out, count=1)
-            elif j in jp_out:
-                jp_out = jp_out.replace(j, f"<span class='{cls}'>{j}</span>", 1)
-            used_japanese.add(j)
-        # Repeated Japanese pieces can share a colour, but colour the English
-        # translation token only once.
-        if not re.search(r"class=['\"]"+re.escape(cls)+r"['\"]>.*?"+re.escape(e)+r"</span>", en_out, re.I):
-            en_out = re.sub(r"(?i)\b("+re.escape(e)+r")\b", lambda m: f"<span class='{cls}'>{m.group(1)}</span>", en_out, count=1)
+            elif japanese in jp_out:
+                jp_out = jp_out.replace(japanese, f"<span class='{cls}'>{japanese}</span>", 1)
+
+    en_out = en
+    # Colour each matched English translation token with the exact same class.
+    for english, cls in sorted(((e, c) for e, c in english_classes.items()), key=lambda x: len(x[0]), reverse=True):
+        en_out = re.sub(r"(?i)\b(" + re.escape(english) + r")\b",
+                        lambda m: f"<span class='{cls}'>{m.group(1)}</span>", en_out, count=1)
     return jp_out, en_out
 
 def format_back(raw, tags):
