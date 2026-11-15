@@ -55,10 +55,10 @@ listening_model = genanki.Model(
 )
 
 def strip_tts(text):
-    return re.sub(r"\\[anki:tts\\s+lang=[^]]+\\](.*?)\\[/anki:tts\\]", r"\\1", text, flags=re.S)
+    return re.sub(r"\[anki:tts\s+lang=[^]]+\](.*?)\[/anki:tts\]", r"\1", text, flags=re.S)
 
 def add_furigana(text):
-    return re.sub(r"\\{([^{}|]+)\\|([^{}|]+)\\}", r"<ruby>\\1<rt>\\2</rt></ruby>", text)
+    return re.sub(r"\{([^{}|]+)\|([^{}|]+)\}", r"<ruby>\1<rt>\2</rt></ruby>", text)
 
 def format_back(raw):
     raw = add_furigana(strip_tts(raw))
@@ -84,7 +84,7 @@ def format_back(raw):
             out.append(f"<div class='note'>{line}</div>")
         else:
             out.append(f"<div class='info'>{line}</div>")
-    return "\\n".join(out)
+    return "\n".join(out)
 
 specs = [
     ("n5_vocabulary.tsv", "Japanese JLPT::N5::Vocabulary", 2059111502),
@@ -100,7 +100,7 @@ total = 0
 for filename, deck_name, deck_id in specs:
     deck = genanki.Deck(deck_id, deck_name)
     with (ROOT / filename).open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f, delimiter="\\t")
+        reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
             front = strip_tts((row.get("Front") or "").strip())
             raw_back = (row.get("Back") or "").strip()
@@ -109,7 +109,7 @@ for filename, deck_name, deck_id in specs:
             back = format_back(raw_back)
             tags = [tag for tag in (row.get("Tags") or "").split() if tag]
             model = listening_model if "listening" in tags else regular_model
-            guid = hashlib.sha1((deck_name + "\\0" + front + "\\0" + raw_back).encode("utf-8")).hexdigest()[:20]
+            guid = hashlib.sha1((deck_name + "\0" + front + "\0" + raw_back).encode("utf-8")).hexdigest()[:20]
             note = genanki.Note(
                 model=model,
                 fields=[front, back, " ".join(tags)],
