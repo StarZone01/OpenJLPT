@@ -1,4 +1,4 @@
-name: Build Japanese N5-N4 Anki deck
+name: Build separate Japanese N5 and N4 Anki decks
 on:
   push:
     branches: [main]
@@ -21,10 +21,17 @@ jobs:
         run: pip install genanki
       - name: Build package
         run: python scripts/build_anki.py
-      - name: Upload Anki package
+      - name: Upload N5 deck
         uses: actions/upload-artifact@v4
         with:
-          name: Japanese_JLPT_N5_N4_Full
-          path: Japanese_JLPT_N5_N4_Full.apkg
+          name: Japanese_JLPT_N5
+          path: Japanese_JLPT_N5.apkg
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload N4 deck
+        uses: actions/upload-artifact@v4
+        with:
+          name: Japanese_JLPT_N4
+          path: Japanese_JLPT_N4.apkg
           if-no-files-found: error
           retention-days: 90
