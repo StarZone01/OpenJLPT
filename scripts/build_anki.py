@@ -257,7 +257,19 @@ def load_lexicon():
                     if key: LEXICON.setdefault(key, gloss)
 
 def align_example(jp, en, term, meaning):
+    # Sentence-level phrase alignments: one English word may correspond to
+    # multiple Japanese particles/morphemes in the same grammatical phrase.
     pairs = []
+    sentence_pairs = [
+        ("こんにちは", "hello"),
+        ("名前", "name"),
+        ("の", "is"), ("は", "is"), ("です", "is"),
+        ("ダニエル", "daniel"),
+    ]
+    for japanese, english in sentence_pairs:
+        if japanese in re.sub(r"\{([^{}|]+)\|([^{}|]+)\}", r"\1", jp) and re.search(r"(?i)\b"+re.escape(english)+r"\b", en):
+            pairs.append((japanese, english))
+
     def english_match(gloss):
         gloss = gloss.strip().lower()
         variants = {
@@ -270,6 +282,7 @@ def align_example(jp, en, term, meaning):
         }
         candidates = variants.get(gloss, [gloss.removeprefix("to ")])
         return next((w for w in candidates if re.search(r"(?i)\b"+re.escape(w)+r"\b", en)), None)
+
     for token, glosses in PARTICLE_GLOSSES.items():
         if token in jp:
             found = next((english_match(g) for g in glosses if english_match(g)), None)
@@ -291,17 +304,25 @@ def align_example(jp, en, term, meaning):
         stem = next((ch for ch in head if "\u4e00" <= ch <= "\u9fff" and ch in jp), None)
         target = stem or (head if head in jp else None)
         if target: pairs.insert(0,(target,found))
-    jp_out, en_out, used_jp, used_en = jp, en, set(), set()
-    for i,(j,e) in enumerate(pairs):
-        if j in used_jp or e.lower() in used_en: continue
-        used_jp.add(j); used_en.add(e.lower()); cls=f"pair-{i%8}"
-        if j.startswith("{"):
+
+    jp_out, en_out = jp, en
+    english_classes = {}
+    for j, e in pairs:
+        key = e.lower()
+        if key not in english_classes:
+            english_classes[key] = f"pair-{len(english_classes)%8}"
+        cls = english_classes[key]
+        # Replace the Japanese base inside furigana markup without losing ruby.
+        pattern = re.compile(r"\{("+re.escape(j)+r")\|([^{}|]+)\}") if not j.startswith("{") else None
+        if pattern and pattern.search(jp_out):
+            jp_out = pattern.sub(lambda m: f"<span class='{cls}'>{{{m.group(1)}|{m.group(2)}}}</span>", jp_out, count=1)
+        elif j.startswith("{"):
             base, reading = j[1:-1].split("|",1)
-            rep=f"<span class='{cls}'>{{{base}|{reading}}}</span>"
-        else: rep=f"<span class='{cls}'>{j}</span>"
-        jp_out=jp_out.replace(j,rep,1)
-        en_out=re.sub(r"(?i)\b("+re.escape(e)+r")\b",r"<span class='"+cls+r"'>\1</span>",en_out,count=1)
-    return jp_out,en_out
+            jp_out = jp_out.replace(j, f"<span class='{cls}'>{{{base}|{reading}}}</span>", 1)
+        else:
+            jp_out = jp_out.replace(j, f"<span class='{cls}'>{j}</span>", 1)
+        en_out = re.sub(r"(?i)\b("+re.escape(e)+r")\b", lambda m: f"<span class='{cls}'>{m.group(1)}</span>", en_out, count=1)
+    return jp_out, en_out
 
 def format_back(raw, tags):
     raw = re.sub(r"\[anki:tts\s+lang=[^]]+\].*?\[/anki:tts\]", "", raw, flags=re.S)
