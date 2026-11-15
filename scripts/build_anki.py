@@ -15,24 +15,25 @@ STYLE = r"""
 .headword { text-align:center; font-size:1.7em; font-weight:800; margin:8px 0 16px; }
 .info { margin:8px 0; padding:9px 12px; border-radius:10px; background:#f0f4f8; }
 .info-label { display:block; font-size:.72em; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#526579; }
-.example-ja { margin-top:13px; padding:14px; border-left:5px solid #2996a6; border-radius:8px; background:#eaf7f8; color:#153d48; font-size:1.17em; }
+.example-ja { margin-top:13px; padding:8px 0; border:0; border-radius:0; background:transparent; color:inherit; font-size:1.17em; }
 .example-en { margin:0 0 12px; padding:8px 14px 13px; color:#344b5b; font-size:.94em; }
 ruby rt { color:#6d5593; font-size:.58em; font-weight:500; }
-.match { border-radius:4px; padding:0 2px; font-weight:800; }
-.noun { color:#245db2; background:#e6efff; }
-.verb { color:#08784f; background:#e0f5e9; }
-.adjective { color:#a65300; background:#fff0d9; }
-.adverb { color:#007c88; background:#dff5f6; }
-.particle { color:#a52f70; background:#fde7f1; }
-.grammar { color:#7541a5; background:#f0e8fb; }
-.kanji { color:#48576a; background:#e9edf2; }
+.match { font-weight:800; }
+.noun { color:#245db2; }
+.verb { color:#08784f; }
+.adjective { color:#a65300; }
+.adverb { color:#007c88; }
+.particle { color:#a52f70; }
+.grammar { color:#7541a5; }
+.kanji { color:#48576a; }
+.pair-0{color:#245db2}.pair-1{color:#08784f}.pair-2{color:#a65300}.pair-3{color:#a52f70}.pair-4{color:#7541a5}.pair-5{color:#007c88}.pair-6{color:#b0447b}.pair-7{color:#7b641c}
 .v-a { color:#d13c3c; font-weight:900; } .v-i { color:#d07818; font-weight:900; }
 .v-u { color:#9b8611; font-weight:900; } .v-e { color:#16824e; font-weight:900; }
 .v-o { color:#2768bd; font-weight:900; }
 .mnemonic { margin:13px 0; padding:12px 14px; border-left:4px solid #9b75c8; background:#f5f0fb; border-radius:7px; font-size:.93em; }
 .legend { display:flex; flex-wrap:wrap; gap:5px 9px; font-size:10px; margin:5px 0 12px; color:#536170; }
 .legend span { white-space:nowrap; }
-.nightMode .info { background:#303945; } .nightMode .example-ja { background:#17343b; color:#d8f4f5; }
+.nightMode .info { background:#303945; } .nightMode .example-ja { background:transparent; color:#d8f4f5; }
 .nightMode .example-en { color:#d0dae4; } .nightMode .mnemonic { background:#332d40; }
 .nightMode .noun { color:#a9c7ff; background:#243957; } .nightMode .verb { color:#a0e5bd; background:#1e4031; }
 .nightMode .adjective { color:#ffd19a; background:#49351f; } .nightMode .adverb { color:#a2e9ed; background:#1c4145; }
@@ -237,6 +238,52 @@ def make_mnemonic(term, reading, meaning, tags, raw_lines):
         scene = f"Picture a giant {hooks[0] if hooks else 'object'} vividly transformed into “{gloss}”."
     return f"Sound hook: {r} → {hook}. {scene} Link that ridiculous image to {term} = {gloss}."
 
+
+LEXICON = {}
+PARTICLE_GLOSSES = {"の":["of","'s"],"は":["as for","is","are"],"が":["but","is","are"],"を":["the"],"に":["to","at","in"],"へ":["to","toward"],"で":["by","at","with","in"],"と":["and","with"],"も":["also","too"],"から":["from","because"],"まで":["until","to"],"より":["than"],"ね":["right","isn't it"],"ですね":["isn't it","right"]}
+def load_lexicon():
+    for path in ROOT.glob("n[45]_vocabulary.tsv"):
+        with path.open("r", encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                back = row.get("Back", "")
+                tm = re.search(r"<b>(.*?)</b>", back)
+                mm = re.search(r"Meaning:\s*(.*?)<br>", back)
+                rm = re.search(r"Reading:\s*(.*?)<br>", back)
+                if not tm or not mm: continue
+                term = re.sub(r"<.*?>", "", tm.group(1)).strip()
+                gloss = mm.group(1).split(";")[0].strip()
+                reading = rm.group(1).strip() if rm else ""
+                for key in (term, reading):
+                    if key: LEXICON.setdefault(key, gloss)
+
+def align_example(jp, en, term, meaning):
+    pairs = []
+    for token, glosses in PARTICLE_GLOSSES.items():
+        if token in jp:
+            found = next((g for g in glosses if re.search(r"(?i)\b"+re.escape(g)+r"\b", en)), None)
+            if found: pairs.append((token, found))
+    for m in re.finditer(r"\{([^{}|]+)\|([^{}|]+)\}", jp):
+        base, reading = m.group(1), m.group(2)
+        gloss = LEXICON.get(base) or LEXICON.get(reading)
+        if not gloss and base == term: gloss = meaning.split(";")[0].strip()
+        if gloss:
+            found = next((g.strip() for g in re.split(r"[,;/]", gloss) if g.strip() and re.search(r"(?i)\b"+re.escape(g.strip())+r"\b", en)), None)
+            if found: pairs.append((m.group(0), found))
+    head = term.replace("〜","").strip()
+    if head and head in jp:
+        gloss = meaning.split(";")[0].strip()
+        if gloss and re.search(r"(?i)\b"+re.escape(gloss)+r"\b", en): pairs.insert(0,(head,gloss))
+    jp_out, en_out, used_jp, used_en = jp, en, set(), set()
+    for i,(j,e) in enumerate(pairs):
+        if j in used_jp or e.lower() in used_en: continue
+        used_jp.add(j); used_en.add(e.lower()); cls=f"pair-{i%8}"
+        if j.startswith("{"):
+            b,r=j[1:-1].split("|",1); rep=f"<span class='{cls}'>{{{b}|{r}}}</span>"
+        else: rep=f"<span class='{cls}'>{j}</span>"
+        jp_out=jp_out.replace(j,rep,1)
+        en_out=re.sub(r"(?i)\b("+re.escape(e)+r")\b",r"<span class='"+cls+r"'>\1</span>",en_out,count=1)
+    return jp_out,en_out
+
 def format_back(raw, tags):
     raw = re.sub(r"\[anki:tts\s+lang=[^]]+\].*?\[/anki:tts\]", "", raw, flags=re.S)
     lines = [x.strip() for x in raw.split("<br>") if x.strip()]
@@ -263,11 +310,9 @@ def format_back(raw, tags):
             out.append(f"<div class='info'><span class='info-label'>Formation</span><span class='match grammar'>{value}</span></div>")
         elif line.startswith("<i>") and line.endswith("</i>"):
             value = line[3:-4]
-            value = highlight_english(value, meaning, kind)
             out.append(f"<div class='example-en'>{value}</div>")
         elif re.search(r"[ぁ-んァ-ヶ一-龯]", re.sub(r"<.*?>","",line)):
-            marked = highlight_japanese(line, term)
-            out.append(f"<div class='example-ja'>{add_furigana(marked)}</div>")
+            out.append(f"<div class='example-ja'>{line}</div>")
         elif line.startswith("On:") or line.startswith("Kun:") or line.startswith("Strokes:") or line.startswith("Words:"):
             label, value = line.split(":",1)
             out.append(f"<div class='info'><span class='info-label'>{label}</span>{value.strip()}</div>")
@@ -277,7 +322,17 @@ def format_back(raw, tags):
             out.append(f"<div class='info'>{line}</div>")
     cue = make_mnemonic(term, reading, meaning, tags, lines)
     out.append(f"<div class='mnemonic'><b>Memory story</b><br>{cue}</div>")
+    ja_idx = next((i for i,x in enumerate(out) if "example-ja" in x), None)
+    en_idx = next((i for i,x in enumerate(out) if "example-en" in x), None)
+    if ja_idx is not None and en_idx is not None:
+        ja = re.sub(r"^.*?example-ja'>(.*?)</div>$", r"\1", out[ja_idx], flags=re.S)
+        en = re.sub(r"^.*?example-en'>(.*?)</div>$", r"\1", out[en_idx], flags=re.S)
+        ja,en = align_example(ja,en,term,meaning)
+        out[ja_idx] = f"<div class='example-ja'>{add_furigana(ja)}</div>"
+        out[en_idx] = f"<div class='example-en'>{en}</div>"
     return "\n".join(out)
+
+load_lexicon()
 
 specs = [
     ("n5_vocabulary.tsv", "Japanese JLPT N5::Vocabulary", 2059111611),
