@@ -61,7 +61,7 @@ def add_furigana(text):
     return re.sub(r"\{([^{}|]+)\|([^{}|]+)\}", r"<ruby>\1<rt>\2</rt></ruby>", text)
 
 def format_back(raw):
-    raw = add_furigana(strip_tts(raw))
+    raw = add_furigana(re.sub(r"\\[anki:tts\\s+lang=[^]]+\\].*?\\[/anki:tts\\]", "", raw, flags=re.S))
     lines = [line.strip() for line in raw.split("<br>") if line.strip()]
     out = []
     term = ""
