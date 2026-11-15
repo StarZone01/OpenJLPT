@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install Anki package builder
-        run: pip install genanki
+        run: pip install genanki 'fugashi[unidic-lite]'
       - name: Build package
         run: python scripts/build_anki.py
       - name: Upload N5 deck
