@@ -15,7 +15,7 @@ STYLE = r"""
 .headword { text-align:center; font-size:1.7em; font-weight:800; margin:8px 0 16px; }
 .info { margin:8px 0; padding:9px 12px; border-radius:10px; background:#f0f4f8; }
 .info-label { display:block; font-size:.72em; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#526579; }
-.example-ja { margin-top:13px; padding:8px 0; border:0; border-radius:0; background:transparent; color:inherit; font-size:1.17em; }
+.example-ja { display:block; margin:13px 0 4px; padding:0 !important; border:0 !important; border-left:0 !important; border-radius:0 !important; background:transparent !important; box-shadow:none !important; color:inherit; font-size:1.17em; }
 .example-en { margin:0 0 12px; padding:8px 14px 13px; color:#344b5b; font-size:.94em; }
 ruby rt { color:#6d5593; font-size:.58em; font-weight:500; }
 .match { font-weight:800; }
@@ -33,7 +33,7 @@ ruby rt { color:#6d5593; font-size:.58em; font-weight:500; }
 .mnemonic { margin:13px 0; padding:12px 14px; border-left:4px solid #9b75c8; background:#f5f0fb; border-radius:7px; font-size:.93em; }
 .legend { display:flex; flex-wrap:wrap; gap:5px 9px; font-size:10px; margin:5px 0 12px; color:#536170; }
 .legend span { white-space:nowrap; }
-.nightMode .info { background:#303945; } .nightMode .example-ja { background:transparent; color:#d8f4f5; }
+.nightMode .info { background:#303945; } .nightMode .example-ja { background:transparent !important; border:0 !important; box-shadow:none !important; color:#d8f4f5; }
 .nightMode .example-en { color:#d0dae4; } .nightMode .mnemonic { background:#332d40; }
 .nightMode .noun { color:#a9c7ff; background:#243957; } .nightMode .verb { color:#a0e5bd; background:#1e4031; }
 .nightMode .adjective { color:#ffd19a; background:#49351f; } .nightMode .adverb { color:#a2e9ed; background:#1c4145; }
@@ -258,27 +258,46 @@ def load_lexicon():
 
 def align_example(jp, en, term, meaning):
     pairs = []
+    def english_match(gloss):
+        gloss = gloss.strip().lower()
+        variants = {
+            "to meet": ["meet", "met", "meets", "meeting"], "meet": ["meet", "met", "meets", "meeting"],
+            "to go": ["go", "goes", "went", "gone", "going"], "to come": ["come", "comes", "came", "coming"],
+            "to see": ["see", "sees", "saw", "seen", "seeing"], "to eat": ["eat", "eats", "ate", "eaten", "eating"],
+            "to buy": ["buy", "buys", "bought", "buying"], "to write": ["write", "writes", "wrote", "written", "writing"],
+            "to read": ["read", "reads", "reading"], "to speak": ["speak", "speaks", "spoke", "spoken", "speaking"],
+            "to do": ["do", "does", "did", "done", "doing"], "to make": ["make", "makes", "made", "making"],
+        }
+        candidates = variants.get(gloss, [gloss.removeprefix("to ")])
+        return next((w for w in candidates if re.search(r"(?i)\b"+re.escape(w)+r"\b", en)), None)
     for token, glosses in PARTICLE_GLOSSES.items():
         if token in jp:
-            found = next((g for g in glosses if re.search(r"(?i)\b"+re.escape(g)+r"\b", en)), None)
+            found = next((english_match(g) for g in glosses if english_match(g)), None)
             if found: pairs.append((token, found))
     for m in re.finditer(r"\{([^{}|]+)\|([^{}|]+)\}", jp):
         base, reading = m.group(1), m.group(2)
         gloss = LEXICON.get(base) or LEXICON.get(reading)
-        if not gloss and base == term: gloss = meaning.split(";")[0].strip()
-        if gloss:
-            found = next((g.strip() for g in re.split(r"[,;/]", gloss) if g.strip() and re.search(r"(?i)\b"+re.escape(g.strip())+r"\b", en)), None)
-            if found: pairs.append((m.group(0), found))
+        if not gloss:
+            for vocab, vocab_gloss in LEXICON.items():
+                if (base in vocab or vocab in base) and (reading in vocab or vocab in reading):
+                    gloss = vocab_gloss
+                    break
+        if not gloss and any(ch in term for ch in base): gloss = meaning.split(";")[0].strip()
+        found = english_match(gloss) if gloss else None
+        if found: pairs.append((m.group(0), found))
     head = term.replace("〜","").strip()
-    if head and head in jp:
-        gloss = meaning.split(";")[0].strip()
-        if gloss and re.search(r"(?i)\b"+re.escape(gloss)+r"\b", en): pairs.insert(0,(head,gloss))
+    found = english_match(meaning.split(";")[0].strip())
+    if head and found:
+        stem = next((ch for ch in head if "\u4e00" <= ch <= "\u9fff" and ch in jp), None)
+        target = stem or (head if head in jp else None)
+        if target: pairs.insert(0,(target,found))
     jp_out, en_out, used_jp, used_en = jp, en, set(), set()
     for i,(j,e) in enumerate(pairs):
         if j in used_jp or e.lower() in used_en: continue
         used_jp.add(j); used_en.add(e.lower()); cls=f"pair-{i%8}"
         if j.startswith("{"):
-            b,r=j[1:-1].split("|",1); rep=f"<span class='{cls}'>{{{b}|{r}}}</span>"
+            base, reading = j[1:-1].split("|",1)
+            rep=f"<span class='{cls}'>{{{base}|{reading}}}</span>"
         else: rep=f"<span class='{cls}'>{j}</span>"
         jp_out=jp_out.replace(j,rep,1)
         en_out=re.sub(r"(?i)\b("+re.escape(e)+r")\b",r"<span class='"+cls+r"'>\1</span>",en_out,count=1)
@@ -286,7 +305,7 @@ def align_example(jp, en, term, meaning):
 
 def format_back(raw, tags):
     raw = re.sub(r"\[anki:tts\s+lang=[^]]+\].*?\[/anki:tts\]", "", raw, flags=re.S)
-    lines = [x.strip() for x in raw.split("<br>") if x.strip()]
+    lines = [x.strip() for x in raw.split("<br>") if x.strip() and "Original memory cue:" not in x]
     if not lines: return ""
     term = re.sub(r"<.*?>", "", lines[0]).replace("<b>","").replace("</b>","") if lines[0].startswith("<b>") else ""
     reading = ""
