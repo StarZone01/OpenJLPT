@@ -74,14 +74,14 @@ def format_back(raw):
         elif line.startswith("Reading:") or line.startswith("Meaning:") or line.startswith("Formation:"):
             label, value = line.split(":", 1)
             out.append(f"<div class='info'><span class='info-label'>{label}</span>{value.strip()}</div>")
+        elif "Original memory cue:" in line:
+            out.append(f"<div class='note'>{line}</div>")
         elif re.search(r"[ぁ-んァ-ヶ一-龯]", re.sub(r"<.*?>", "", line)):
             if term:
                 needle = term.replace("〜", "")
                 if needle and needle in line:
                     line = line.replace(needle, f"<span class='target'>{needle}</span>", 1)
             out.append(f"<div class='example-ja'>{line}</div>")
-        elif "Original memory cue:" in line:
-            out.append(f"<div class='note'>{line}</div>")
         else:
             out.append(f"<div class='info'>{line}</div>")
     return "\n".join(out)
