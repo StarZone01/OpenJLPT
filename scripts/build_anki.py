@@ -268,6 +268,17 @@ def align_example(jp, en, term, meaning):
 
     aliases = {
         "to meet": ["meet", "met", "meets", "meeting"],
+        "bright": ["bright", "brighter", "brightest", "light", "lighter", "lightest"],
+        "to wear": ["wear", "wears", "wore", "worn", "wearing"],
+        "to fit": ["fit", "fits", "fitted", "matching", "match"],
+        "to greet": ["greet", "greets", "greeted", "greeting", "say hello", "hello"],
+        "to apologize": ["apologize", "apologizes", "apologized", "apology", "apologized"],
+        "to rise": ["rise", "rises", "rose", "risen", "rose"],
+        "to increase": ["increase", "increases", "increased", "increasing", "rise", "rose"],
+        "to hurry": ["hurry", "hurries", "hurried", "rushed", "rush"],
+        "to live": ["live", "lives", "lived", "living"],
+        "safe": ["safe", "safely"],
+        "safety": ["safety", "safe"],
         "to go": ["go", "goes", "went", "gone", "going"],
         "to come": ["come", "comes", "came", "coming"],
         "to see": ["see", "sees", "saw", "seen", "seeing", "look", "looked"],
